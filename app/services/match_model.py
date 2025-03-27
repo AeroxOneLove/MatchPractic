@@ -2,11 +2,8 @@ import json
 import ollama
 from app.schemas import JobResume, JobVacancy, MatchResult
 
-match_results_store: list[MatchResult] = []
-
 def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> MatchResult:
     job_data_dict = job_data.model_dump()
-    job_data_dict["uuid"] = str(job_data_dict["uuid"])  
 
     job_vacancy_dict = job_vacancy.model_dump()
 
@@ -32,6 +29,8 @@ def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> MatchR
     """
 
     response = ollama.chat(model="mistral:latest", messages=[{"role": "user", "content": prompt}])
+
+    match_results_store: list[MatchResult] = []
 
     try:
         result = json.loads(response['message']['content'])
