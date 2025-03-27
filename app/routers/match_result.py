@@ -10,4 +10,4 @@ router = APIRouter()
 
 @router.get("/match_results", response_model=list[MatchResult])
 async def get_match_results():
-    return match_results_store  # Отдаём все сохранённые результаты
+    return match_results_store  

@@ -5,9 +5,8 @@ from app.schemas import JobResume, JobVacancy, MatchResult
 match_results_store: list[MatchResult] = []
 
 def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> MatchResult:
-    # Преобразуем объект Pydantic в словарь и конвертируем UUID в строку
     job_data_dict = job_data.model_dump()
-    job_data_dict["uuid"] = str(job_data_dict["uuid"])  # Преобразуем UUID в строку
+    job_data_dict["uuid"] = str(job_data_dict["uuid"])  
 
     job_vacancy_dict = job_vacancy.model_dump()
 
