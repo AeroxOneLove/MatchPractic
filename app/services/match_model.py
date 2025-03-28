@@ -1,6 +1,6 @@
 import json
 import ollama
-from app.schemas import JobResume, JobVacancy, MatchResult
+from app.schemas import JobResume, JobVacancy
 
 PROMPT_TEMPLATE = """ 
 Вакансия:
@@ -13,7 +13,7 @@ PROMPT_TEMPLATE = """
 Сравни вакансию с резюме и дай мне ответ в формате JSON:
 
 {{
-    "match_percentage": int,
+    "match_percentage": float,
     "matched": list[str],
     "didnt_match": list[str]
 }}
@@ -23,7 +23,7 @@ PROMPT_TEMPLATE = """
 Ответ строго в JSON без лишнего текста.
 """
 
-def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> MatchResult:
+def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> dict:
     job_data_dict = json.dumps(job_data.model_dump(), ensure_ascii=False, indent=2)
     job_vacancy_dict = json.dumps(job_vacancy.model_dump(), ensure_ascii=False, indent=2)
 
@@ -31,19 +31,12 @@ def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> MatchR
 
     response = ollama.chat(model="mistral:latest", messages=[{"role": "user", "content": prompt}])
 
-    match_results_store: list[MatchResult] = []
-
     try:
-        result = json.loads(response['message']['content'])
+        if not response or "message" not in response or "content" not in response["message"]:
+            raise ValueError(f"Пустой или некорректный ответ от AI: {response}")
 
-        match_result = MatchResult(
-            match_percentage=result["match_percentage"],
-            matched=result["matched"],
-            didnt_match=result["didnt_match"]
-        )
-
-        match_results_store.append(match_result)
-
-        return match_result
-    except (json.JSONDecodeError, KeyError) as e:
+        result = response["message"]["content"]
+        return json.loads(result)
+    
+    except (json.JSONDecodeError, ValueError) as e:
         raise ValueError(f"Ошибка обработки AI-ответа: {e}")
