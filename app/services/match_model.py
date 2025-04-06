@@ -1,6 +1,7 @@
 import json
 import ollama
 from app.schemas import JobResume, JobVacancy
+from fastapi import HTTPException
 
 PROMPT_TEMPLATE = """ 
 Вакансия:
@@ -29,9 +30,9 @@ def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> dict:
 
     prompt = PROMPT_TEMPLATE.format(job_data=job_data_dict, job_vacancy=job_vacancy_dict)
 
-    response = ollama.chat(model="mistral:latest", messages=[{"role": "user", "content": prompt}])
-
     try:
+        response = ollama.chat(model="mistral:latest", messages=[{"role": "user", "content": prompt}])
+        
         if not response or "message" not in response or "content" not in response["message"]:
             raise ValueError(f"Пустой или некорректный ответ от AI: {response}")
 
@@ -39,4 +40,4 @@ def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> dict:
         return json.loads(result)
     
     except (json.JSONDecodeError, ValueError) as e:
-        raise ValueError(f"Ошибка обработки AI-ответа: {e}")
+        raise HTTPException(status_code=400, detail=f"Ошибка обработки AI-ответа: {str(e)}")
