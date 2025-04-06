@@ -34,10 +34,10 @@ def compare_text_with_ai(job_data: JobResume, job_vacancy: JobVacancy) -> dict:
         response = ollama.chat(model="mistral:latest", messages=[{"role": "user", "content": prompt}])
         
         if not response or "message" not in response or "content" not in response["message"]:
-            raise ValueError(f"Пустой или некорректный ответ от AI: {response}")
+            raise ValueError(f"Empty or invalid response from AI")
 
         result = response["message"]["content"]
         return json.loads(result)
     
     except (json.JSONDecodeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Ошибка обработки AI-ответа: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing AI response")
