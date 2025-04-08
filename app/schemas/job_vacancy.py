@@ -1,8 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, PositiveFloat
 
 
 class JobVacancy(BaseModel):
-    general_work_experience: int
-    position: str
-    skills: list[str]
-
+    uuid: str
+    title: str
+    description: str
+    requirements: str
+    conditions: str
+    salary: PositiveFloat
+    employment_type: str
