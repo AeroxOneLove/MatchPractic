@@ -1,5 +1,6 @@
 services:
   fastapi:
+    container_name: neural-fastapi
     build: ..
     command: uvicorn --factory app.main:create_app --reload --host 0.0.0.0 --port 8000
     volumes:
@@ -7,9 +8,8 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - pracric_network
-    container_name: nc-fastapi
+      - work_match_neural_network
 
 networks:
-  pracric_network:
+  work_match_neural_network:
     driver: bridge
