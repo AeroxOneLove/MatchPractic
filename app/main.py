@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import config
 from app.routers import routers
 
 
 def create_app():
-    app = FastAPI()
+    app = FastAPI(debug=config.DEBUG)
 
     app.add_middleware(
         CORSMiddleware,

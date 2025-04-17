@@ -6,7 +6,7 @@ services:
     volumes:
       - ..:/code
     ports:
-      - "8000:8000"
+      - "8001:8000"
     networks:
       - work_match_neural_network
 
