@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+
 class ExperienceResponse(BaseModel):
     uuid: str
     company_name: str
