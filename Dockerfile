@@ -1,21 +1,32 @@
-FROM python:3.13-slim-bullseye
+ARG PYTHON_VERSION=3.13.3
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+FROM python:${PYTHON_VERSION}-slim-bullseye AS builder
 
 WORKDIR /code
 
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV UV_PROJECT_ENVIRONMENT="/usr/local/"
+
 RUN apt update -y && \
-    apt install -y python3-dev \
-    gcc \
-    musl-dev
+    apt install -y --no-install-recommends python3-dev build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip && pip install poetry
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-ADD pyproject.toml .
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-root --no-interaction --no-ansi
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-cache
 
-EXPOSE 8000
+FROM python:${PYTHON_VERSION}-slim-bullseye
+
+WORKDIR /code
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV UV_PROJECT_ENVIRONMENT="/usr/local/"
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local /usr/local
 
 COPY . .

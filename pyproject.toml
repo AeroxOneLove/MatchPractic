@@ -1,20 +1,16 @@
 [project]
-name = "ml-practicant-1"
-version = "1"
-description = ""
-authors = [
-    {name = "Timur"}
-]
+name = "matchpractic"
+version = "0.1.0"
+description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.13"
 dependencies = [
-    "fastapi (>=0.115.11,<0.116.0)",
-    "uvicorn (>=0.34.0,<0.35.0)",
-    "pydantic (>=2.10.6,<3.0.0)",
-    "ollama (>=0.4.7,<0.5.0)"
+    "fastapi>=0.115.12",
+    "numpy>=2.2.6",
+    "ollama>=0.4.8",
+    "pydantic>=2.11.5",
+    "pydantic-settings>=2.9.1",
+    "scikit-learn>=1.6.1",
+    "stop-words>=2018.7.23",
+    "uvicorn>=0.34.2",
 ]
-
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"

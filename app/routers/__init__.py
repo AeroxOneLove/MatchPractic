@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from app.routers.vacancy_route import router as vacancy_router
 
+from app.routers.vacancy_route import router as vacancy_router
 
 routers = APIRouter()
 router_list = [
