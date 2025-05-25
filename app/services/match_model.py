@@ -1,12 +1,13 @@
 import json
 import re
-import ollama
+from datetime import date
+from typing import Optional
+
 import numpy as np
-from datetime import datetime
+import ollama
+from fastapi import HTTPException
 from sklearn.metrics.pairwise import cosine_similarity
 from stop_words import get_stop_words
-from typing import Dict, List, Optional
-from fastapi import HTTPException
 
 from app.config import config
 
@@ -19,19 +20,20 @@ class MatchService:
         self.SKILL_MATCH_THRESHOLD = 0.8
         self.stop_words = get_stop_words("russian")
 
-    def calculate_experience(self, experiences: List[Dict]) -> float:
+    def calculate_experience(self, experiences: list[dict]) -> float:
         """Рассчитывает общий опыт работы в годах"""
         total_days = 0
         for exp in experiences:
             try:
-                start = datetime.strptime(exp["start_date"], "%Y-%m-%d")
-                end = datetime.strptime(exp["end_date"], "%Y-%m-%d") if exp["end_date"] else datetime.now()
+                start = exp["start_date"]
+                end = exp["end_date"] if exp["end_date"] else date.today()
                 total_days += (end - start).days
             except Exception:
                 continue
+
         return round(total_days / 365, 1)
 
-    def extract_skills_from_text(self, text: str) -> List[str]:
+    def extract_skills_from_text(self, text: str) -> list[str]:
         """Извлечение навыков из текста вакансии"""
         explicit_skills = []
         skill_keywords = ["знание", "владение", "опыт работы с", "умение работать с", "навыки работы с"]
@@ -52,7 +54,7 @@ class MatchService:
 
         try:
             response = ollama_client.chat(
-                model="mistral:latest", messages=[{"role": "user", "content": PROMPT.format(text=text)}]
+                model="llama3.2:3b", messages=[{"role": "user", "content": PROMPT.format(text=text)}]
             )
             content = response["message"]["content"]
             start = content.find("{")
@@ -83,7 +85,7 @@ class MatchService:
 
         try:
             response = ollama_client.chat(
-                model="mistral:latest", messages=[{"role": "user", "content": PROMPT.format(text=text)}]
+                model="llama3.2:3b", messages=[{"role": "user", "content": PROMPT.format(text=text)}]
             )
             return int(response["message"]["content"].strip())
         except Exception:
@@ -111,7 +113,7 @@ class MatchService:
         match = re.search(r"(\d+)\s*год[ау]?", skill.lower())
         return int(match.group(1)) if match else None
 
-    def analyze_data(self, data: Dict) -> Dict:
+    def analyze_data(self, data: dict) -> dict:
         """Анализирует резюме или вакансию"""
         result = {"position": "", "key_skills": [], "work_experience": 0}
 
@@ -134,7 +136,7 @@ class MatchService:
 
         return result
 
-    def compare_skills(self, resume_skills: List[str], job_skills: List[str]) -> Dict:
+    def compare_skills(self, resume_skills: list[str], job_skills: list[str]) -> dict:
         """Сравнивает навыки с учетом порога сходства"""
         result = {"missing_skills": [], "matched_skills": 0, "total_skills": len(job_skills)}
 
@@ -185,27 +187,34 @@ class MatchService:
         return result
 
     def compare_position(self, resume_pos: str, job_pos: str) -> bool:
-        """Сравнение позиций"""
-        resume_words = set(self.preprocess_text(resume_pos).split())
-        job_words = set(self.preprocess_text(job_pos).split())
-        common_words = resume_words & job_words
-        return len(common_words) >= max(1, min(len(resume_words), len(job_words)) / 2)
+        """Сравнивает позиции через эмбеддинги, возвращает True, если similarity > порог"""
+        resume_emb = self.get_embedding_ollama(self.preprocess_text(resume_pos))
+        job_emb = self.get_embedding_ollama(self.preprocess_text(job_pos))
+
+        if np.any(resume_emb) and np.any(job_emb):
+            similarity = cosine_similarity([resume_emb], [job_emb])[0][0]
+            return similarity >= 0.5
+        else:
+            resume_words = set(self.preprocess_text(resume_pos).split())
+            job_words = set(self.preprocess_text(job_pos).split())
+            common_words = resume_words & job_words
+            return len(common_words) >= 1
 
     def compare_experience(self, resume_exp: float, job_exp: float) -> bool:
         """Сравнение опыта работы"""
         return resume_exp >= job_exp * 0.8
 
-    def calculate_match(self, resume: Dict, job: Dict) -> Dict:
+    def calculate_match(self, resume: dict, job: dict) -> dict:
         """Сравнивает резюме и вакансию"""
         result = {"match": 0, "didnt_match": []}
 
-        # Проверка позиции (30%)
         position_match = self.compare_position(resume["position"], job["position"])
         if not position_match:
-            result["didnt_match"].append(f"Позиция: '{resume['position']}' не соответствует '{job['position']}'")
-        position_score = 30 if position_match else 0
+            result["didnt_match"].append(
+                f"Позиция '{resume['position']}' может не полностью соответствовать '{job['position']}'"
+            )
+        position_score = 20 if position_match else 10
 
-        # Проверка опыта (20%)
         experience_match = self.compare_experience(resume["work_experience"], job["work_experience"])
         if not experience_match:
             exp_diff = job["work_experience"] - resume["work_experience"]
@@ -245,7 +254,7 @@ class MatchService:
         result["match"] = min(100, int(round(total_score)))
         return result
 
-    async def compare_resume_vacancy(self, resume_data: Dict, vacancy_data: Dict) -> Dict:
+    async def compare_resume_vacancy(self, resume_data: dict, vacancy_data: dict) -> dict:
         """Сравнивает резюме и вакансию"""
         try:
             resume_analyzed = self.analyze_data({"resume": resume_data})
