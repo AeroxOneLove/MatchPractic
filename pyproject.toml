@@ -10,7 +10,11 @@ dependencies = [
     "ollama>=0.4.8",
     "pydantic>=2.11.5",
     "pydantic-settings>=2.9.1",
+    "pymorphy3>=2.0.3",
     "scikit-learn>=1.6.1",
+    "spacy>=3.8.7",
     "stop-words>=2018.7.23",
+    "torch>=2.7.0",
+    "transformers>=4.52.3",
     "uvicorn>=0.34.2",
 ]

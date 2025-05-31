@@ -1,17 +1,33 @@
-import json
 import re
-from datetime import date
-from typing import Optional
-
-import numpy as np
 import ollama
-from fastapi import HTTPException
+import numpy as np
+from datetime import datetime, date
 from sklearn.metrics.pairwise import cosine_similarity
 from stop_words import get_stop_words
+from typing import Dict, List, Optional
+from fastapi import HTTPException
+import spacy
 
 from app.config import config
 
 ollama_client = ollama.Client(host=config.OLLAMA_HOST)
+
+try:
+    MODEL_PATH = "lfs/model_skills"
+    import os
+
+    if not os.path.exists(MODEL_PATH):
+        print(f"Директория модели {MODEL_PATH} не существует")
+    else:
+        print(f"Директория модели {MODEL_PATH} найдена, содержимое: {os.listdir(MODEL_PATH)}")
+    nlp = spacy.load(MODEL_PATH)
+    print(f"Модель успешно загружена из {MODEL_PATH}")
+except Exception as e:
+    print(f"Ошибка загрузки модели: {e}")
+    import traceback
+
+    traceback.print_exc()
+    nlp = None
 
 
 class MatchService:
@@ -20,54 +36,57 @@ class MatchService:
         self.SKILL_MATCH_THRESHOLD = 0.8
         self.stop_words = get_stop_words("russian")
 
-    def calculate_experience(self, experiences: list[dict]) -> float:
-        """Рассчитывает общий опыт работы в годах"""
+    def calculate_experience(self, experiences: List[Dict]) -> float:
         total_days = 0
         for exp in experiences:
             try:
-                start = exp["start_date"]
-                end = exp["end_date"] if exp["end_date"] else date.today()
-                total_days += (end - start).days
+                start_date = exp.get("start_date")
+                if isinstance(start_date, str):
+                    start = datetime.strptime(start_date, "%Y-%m-%d")
+                elif isinstance(start_date, date):
+                    start = datetime.combine(start_date, datetime.min.time())
+                else:
+                    continue
+
+                end_date = exp.get("end_date")
+                if end_date:
+                    if isinstance(end_date, str):
+                        end = datetime.strptime(end_date, "%Y-%m-%d")
+                    elif isinstance(end_date, date):
+                        end = datetime.combine(end_date, datetime.min.time())
+                    else:
+                        continue
+                else:
+                    end = datetime.now()
+
+                if start > end:
+                    continue
+
+                days = (end - start).days
+                total_days += days
             except Exception:
                 continue
+        years = round(total_days / 365, 1)
+        return years
 
-        return round(total_days / 365, 1)
-
-    def extract_skills_from_text(self, text: str) -> list[str]:
-        """Извлечение навыков из текста вакансии"""
-        explicit_skills = []
-        skill_keywords = ["знание", "владение", "опыт работы с", "умение работать с", "навыки работы с"]
-
-        for keyword in skill_keywords:
-            matches = re.finditer(rf"{keyword}\s+([\w\s/]+)", text, re.IGNORECASE)
-            for match in matches:
-                skills = match.group(1).split("/")
-                explicit_skills.extend([s.strip() for s in skills if s.strip()])
-
-        if explicit_skills:
-            return list(set(explicit_skills))
-
-        PROMPT = """Извлеки ТОЛЬКО технические навыки из текста вакансии на русском языке.
-    Текст: {text}
-    Верни ОДИН JSON-объект строго в формате: {{"skills": ["навык1", "навык2"]}}
-    Не добавляй никаких комментариев!"""
+    def extract_skills_from_text(self, text: str) -> List[str]:
+        """
+        Извлекает технические навыки из текста с использованием модели spacy.
+        Если модель не загружена, возвращает пустой список.
+        """
+        if nlp is None:
+            print("Модель spacy не загружена! Навыки не могут быть извлечены.")
+            return []
 
         try:
-            response = ollama_client.chat(
-                model="llama3.2:3b", messages=[{"role": "user", "content": PROMPT.format(text=text)}]
-            )
-            content = response["message"]["content"]
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            json_str = content[start:end]
-            result = json.loads(json_str)
-            return result.get("skills", [])
+            doc = nlp(text)
+            skills = [ent.text.strip() for ent in doc.ents if ent.label_ == "SKILL"]
+            return list(set(skills))  # Удаляем дубликаты
         except Exception as e:
-            print(f"Ошибка при извлечении навыков: {e}")
+            print(f"Ошибка при извлечении навыков с помощью spacy: {e}")
             return []
 
     def extract_experience_from_text(self, text: str) -> int:
-        """Извлекает требуемый опыт работы из текста"""
         patterns = [
             r"опыт\s*(?:работы)?\s*(?:от)?\s*(\d+)\s*(\+)?\s*(?:года|лет|год)",
             r"(\d+)\s*[-+]\s*(?:года|лет|год)",
@@ -92,14 +111,12 @@ class MatchService:
             return 0
 
     def preprocess_text(self, text: str) -> str:
-        """Предобработка текста для эмбеддингов"""
         text = text.lower()
         text = re.sub(r"[^\w\s]", "", text)
         text = " ".join(word for word in text.split() if word not in self.stop_words)
         return text
 
     def get_embedding_ollama(self, text: str) -> np.ndarray:
-        """Получение эмбеддинга через Ollama"""
         try:
             response = ollama_client.embed(model="nomic-embed-text", input=text)
             if hasattr(response, "embeddings") and len(response.embeddings) > 0:
@@ -109,12 +126,10 @@ class MatchService:
             return np.zeros(self.EMBEDDING_SIZE)
 
     def extract_years_from_skill(self, skill: str) -> Optional[int]:
-        """Извлекает количество лет из описания навыка"""
         match = re.search(r"(\d+)\s*год[ау]?", skill.lower())
         return int(match.group(1)) if match else None
 
-    def analyze_data(self, data: dict) -> dict:
-        """Анализирует резюме или вакансию"""
+    def analyze_data(self, data: Dict) -> Dict:
         result = {"position": "", "key_skills": [], "work_experience": 0}
 
         if not data:
@@ -136,8 +151,7 @@ class MatchService:
 
         return result
 
-    def compare_skills(self, resume_skills: list[str], job_skills: list[str]) -> dict:
-        """Сравнивает навыки с учетом порога сходства"""
+    def compare_skills(self, resume_skills: List[str], job_skills: List[str]) -> Dict:
         result = {"missing_skills": [], "matched_skills": 0, "total_skills": len(job_skills)}
 
         skill_embeddings = {
@@ -187,33 +201,21 @@ class MatchService:
         return result
 
     def compare_position(self, resume_pos: str, job_pos: str) -> bool:
-        """Сравнивает позиции через эмбеддинги, возвращает True, если similarity > порог"""
-        resume_emb = self.get_embedding_ollama(self.preprocess_text(resume_pos))
-        job_emb = self.get_embedding_ollama(self.preprocess_text(job_pos))
-
-        if np.any(resume_emb) and np.any(job_emb):
-            similarity = cosine_similarity([resume_emb], [job_emb])[0][0]
-            return similarity >= 0.5
-        else:
-            resume_words = set(self.preprocess_text(resume_pos).split())
-            job_words = set(self.preprocess_text(job_pos).split())
-            common_words = resume_words & job_words
-            return len(common_words) >= 1
+        resume_words = set(self.preprocess_text(resume_pos).split())
+        job_words = set(self.preprocess_text(job_pos).split())
+        common_words = resume_words & job_words
+        return len(common_words) >= max(1, min(len(resume_words), len(job_words)) / 2)
 
     def compare_experience(self, resume_exp: float, job_exp: float) -> bool:
-        """Сравнение опыта работы"""
         return resume_exp >= job_exp * 0.8
 
-    def calculate_match(self, resume: dict, job: dict) -> dict:
-        """Сравнивает резюме и вакансию"""
+    def calculate_match(self, resume: Dict, job: Dict) -> Dict:
         result = {"match": 0, "didnt_match": []}
 
         position_match = self.compare_position(resume["position"], job["position"])
         if not position_match:
-            result["didnt_match"].append(
-                f"Позиция '{resume['position']}' может не полностью соответствовать '{job['position']}'"
-            )
-        position_score = 20 if position_match else 10
+            result["didnt_match"].append(f"Позиция: '{resume['position']}' не соответствует '{job['position']}'")
+        position_score = 30 if position_match else 0
 
         experience_match = self.compare_experience(resume["work_experience"], job["work_experience"])
         if not experience_match:
@@ -222,13 +224,16 @@ class MatchService:
                 f"Опыт работы: {resume['work_experience']} лет (требуется {job['work_experience']}+,\
 не хватает {exp_diff:.1f} лет)"
             )
-        experience_score = (
-            20
-            if experience_match
-            else max(0, 20 * (1 - (job["work_experience"] - resume["work_experience"]) / job["work_experience"]))
-        )
 
-        # Проверка навыков (50%)
+        if job["work_experience"] == 0 or experience_match:
+            experience_score = 20  # Полный балл, если опыт достаточен или не требуется
+        elif exp_diff < 1.0:
+            experience_score = 10  # Нехватка менее 1 года
+        elif exp_diff <= 2.0:
+            experience_score = 5  # Нехватка от 1 до 2 лет
+        else:
+            experience_score = 0  # Нехватка более 2 лет
+
         skills_result = self.compare_skills(resume["key_skills"], job["key_skills"])
         if skills_result["missing_skills"]:
             result["didnt_match"].append(f"Не хватает навыков: {', '.join(skills_result['missing_skills'])}")
@@ -238,24 +243,12 @@ class MatchService:
             else 0
         )
 
-        # Общий счет
         total_score = position_score + experience_score + skills_score
-
-        # Корректировка с учетом эмбеддингов
-        resume_text = f"{resume['position']} {' '.join(resume['key_skills'])} {resume['work_experience']}"
-        job_text = f"{job['position']} {' '.join(job['key_skills'])} {job['work_experience']}"
-        resume_embedding = self.get_embedding_ollama(self.preprocess_text(resume_text))
-        job_embedding = self.get_embedding_ollama(self.preprocess_text(job_text))
-
-        if np.any(resume_embedding) and np.any(job_embedding):
-            embedding_similarity = cosine_similarity([resume_embedding], [job_embedding])[0][0]
-            total_score = (total_score * 0.7) + (embedding_similarity * 100 * 0.3)
 
         result["match"] = min(100, int(round(total_score)))
         return result
 
-    async def compare_resume_vacancy(self, resume_data: dict, vacancy_data: dict) -> dict:
-        """Сравнивает резюме и вакансию"""
+    async def compare_resume_vacancy(self, resume_data: Dict, vacancy_data: Dict) -> Dict:
         try:
             resume_analyzed = self.analyze_data({"resume": resume_data})
             job_analyzed = self.analyze_data({"job": vacancy_data})
